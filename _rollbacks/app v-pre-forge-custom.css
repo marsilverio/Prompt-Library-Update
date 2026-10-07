@@ -10590,6 +10590,38 @@
 .phs-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
 .phs-actions .btn { flex: 1 1 auto; }
 
+/* NEARBY SHARE -- settings inside the phone modal, and the incoming prompt card */
+.phs-nearby { padding: 0 var(--sp-5) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); }
+.phs-nearby:empty { display: none; }
+.phs-sec { font-size: var(--fs-sm); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+.phs-switch { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-base); color: var(--ink); cursor: pointer; }
+.phs-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--ink-3); }
+.nearby-stack { position: fixed; top: var(--sp-5); right: var(--sp-5); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--sp-3); width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.nearby-card { pointer-events: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); animation: nearbyIn 320ms cubic-bezier(.25, 1, .5, 1) both; }
+.nearby-head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--ink-3); }
+.nearby-head b { color: var(--ink); font-weight: 600; }
+.nearby-head .material-symbols-outlined { font-size: 20px; color: var(--accent); }
+.nearby-title { font-family: var(--ff-display); font-size: var(--fs-md, 1.1rem); color: var(--ink); line-height: 1.25; }
+.nearby-preview { font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+.nearby-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; margin-top: var(--sp-1); }
+.nbs-scan { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--ink-3); padding: var(--sp-2) 0; }
+.nbs-scan i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: nbsPulse 1.2s ease-in-out infinite; }
+.nbs-dev { display: flex; align-items: center; gap: var(--sp-3); width: 100%; text-align: left; padding: var(--sp-2); border-radius: var(--r-md); background: none; border: 0; color: var(--ink); cursor: pointer; }
+.nbs-dev:hover:not([disabled]) { background: var(--surface-2, var(--surface)); }
+.nbs-dev[disabled] { opacity: .55; cursor: default; }
+.nbs-dev.busy[disabled] { opacity: 1; }
+.nbs-ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); font-size: 22px; flex: none; }
+.nbs-dev.busy .nbs-ic { border-color: var(--accent); color: var(--accent); animation: nbsPulse 1.4s ease-in-out infinite; }
+.nbs-name { display: block; font-size: var(--fs-base); }
+.nbs-meta { display: block; font-size: var(--fs-sm); color: var(--ink-3); }
+.nbs-mono { font-family: var(--ff-mono); }
+.nbs-manual { display: flex; gap: var(--sp-2); }
+.nbs-manual .form-input { flex: 1; min-width: 0; font-family: var(--ff-mono); }
+.nbs-err { color: var(--danger, var(--ink-3)); }
+@keyframes nbsPulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes nearbyIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .nearby-card { animation: none; } }
+
 /* RESPONSIVE SHELL -- phone/tablet: sidebar becomes an off-canvas drawer (unlayered, beats @layer layout) */
 @media (max-width: 820px) {
   html, body { overflow-x: hidden; }
@@ -10694,105 +10726,3 @@ body.plx-workspace-open{overflow:hidden}
   .plx-panel{min-height:360px}
   .plx-editor,.plx-output{min-height:220px}
 }
-
-/* PROMPT FORGE UX PASS 2026-10-05
-   Focused workbench: build on the left, living result on the right. */
-#forgeWorkspace{--forge-gap:0;background:var(--bg)}
-#forgeWorkspace .ws-header{min-height:68px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:none}
-#forgeWorkspace .ws-header-left{min-width:0}
-#forgeWorkspace .ws-header-icon{flex:0 0 auto;width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--accent-soft);color:var(--accent)}
-#forgeWorkspace .ws-title{font-size:22px;letter-spacing:-.02em}
-#forgeWorkspace .ws-subtitle{margin-top:2px;max-width:560px;color:var(--ink-3)}
-#forgeWorkspace .forge-toolbar{min-height:52px;padding:8px 20px;gap:14px;background:var(--surface);box-shadow:inset 0 -1px 0 var(--line)}
-#forgeWorkspace .forge-toolbar-section:first-child{padding-right:14px;border-right:1px solid var(--line)}
-#forgeWorkspace .forge-toolbar-label{font-size:9px;letter-spacing:.11em}
-#forgeWorkspace .forge-framework-select{height:36px;min-width:245px;max-width:360px;border-radius:9px;font-weight:600;background:var(--surface-sunk)}
-#forgeWorkspace .forge-template-chips{scrollbar-width:thin;padding:2px 0}
-#forgeWorkspace .forge-template-chip{min-height:30px;padding:5px 11px;background:var(--surface)}
-#forgeWorkspace .forge-body{grid-template-columns:minmax(380px,44%) minmax(0,56%);min-height:0;height:auto;flex:1;background:var(--bg)}
-#forgeWorkspace .forge-form{min-width:0;padding:20px 22px 28px;gap:14px;border-right:1px solid var(--line);background:var(--bg);overscroll-behavior:contain}
-#forgeWorkspace .forge-form::before{content:"BUILD";display:block;margin-bottom:-4px;color:var(--ink-4);font:700 9px/1 var(--ff-mono);letter-spacing:.16em}
-#forgeWorkspace .forge-section{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-sm);transition:border-color var(--t-fast),box-shadow var(--t-fast)}
-#forgeWorkspace .forge-section:focus-within{border-color:var(--accent-line);box-shadow:0 0 0 2px var(--accent-soft)}
-#forgeWorkspace .forge-label{font-size:10px;letter-spacing:.07em}
-#forgeWorkspace .forge-input{min-height:92px;background:var(--surface-sunk);border-radius:9px}
-#forgeWorkspace .forge-meta-row{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-sm)}
-#forgeWorkspace .forge-preview{min-width:0;background:var(--surface);border-left:0}
-#forgeWorkspace .forge-preview-header{min-height:52px;padding:8px 18px;background:var(--surface);position:sticky;top:0;z-index:2}
-#forgeWorkspace .forge-preview-title{display:inline-flex;align-items:center;gap:8px;text-transform:none;letter-spacing:-.01em;font-size:13px;color:var(--ink)}
-#forgeWorkspace .forge-preview-title::before{content:"●";color:var(--success);font-size:9px}
-#forgeWorkspace .forge-preview-controls{min-width:0;flex-wrap:wrap;justify-content:flex-end}
-#forgeWorkspace .forge-quality-bar-wrap{padding:7px 18px;background:var(--surface-2);border-bottom:1px solid var(--line)}
-#forgeWorkspace .forge-quality-track{height:5px}
-#forgeWorkspace .forge-quality-label{min-width:112px;font-size:9px;letter-spacing:.02em}
-#forgeWorkspace .forge-output{padding:26px clamp(18px,3vw,42px) 42px;max-width:900px;width:100%;box-sizing:border-box;margin:0 auto;font-size:13px;line-height:1.8;background:var(--surface);overscroll-behavior:contain}
-#forgeWorkspace .forge-output .hint{display:block;max-width:430px;margin:15vh auto 0;padding:22px;border:1px dashed var(--line-strong);border-radius:12px;text-align:center;font-style:normal;line-height:1.55}
-#forgeWorkspace .forge-assembled-block{padding:0 0 17px;margin-bottom:17px;border-bottom:1px solid var(--line)}
-#forgeWorkspace .forge-assembled-block:last-child{border-bottom:0}
-#forgeWorkspace .forge-assembled-block .forge-block-label{color:var(--accent);font-size:9px;letter-spacing:.13em}
-#forgeWorkspace .forge-assembled-block .forge-block-body{font-size:13px;line-height:1.75}
-#forgeWorkspace #forgeSaveBtn{box-shadow:var(--shadow-sm)}
-#forgeWorkspace #forgeCopyBtn{white-space:nowrap}
-#forgeWorkspace button:focus-visible,#forgeWorkspace select:focus-visible,#forgeWorkspace input:focus-visible,#forgeWorkspace textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media(max-width:1050px){
-  #forgeWorkspace .forge-body{grid-template-columns:minmax(320px,46%) minmax(0,54%)}
-  #forgeWorkspace .forge-framework-select{min-width:210px}
-}
-@media(max-width:820px){
-  #forgeWorkspace .ws-header{padding:10px 14px}
-  #forgeWorkspace .ws-header-actions{width:100%;justify-content:flex-end}
-  #forgeWorkspace .forge-toolbar{align-items:stretch;flex-direction:column;padding:9px 12px;gap:8px}
-  #forgeWorkspace .forge-toolbar-section:first-child{padding-right:0;padding-bottom:8px;border-right:0;border-bottom:1px solid var(--line)}
-  #forgeWorkspace .forge-framework-select{min-width:0;max-width:none;flex:1}
-  #forgeWorkspace .forge-body{display:flex;flex-direction:column;overflow:auto}
-  #forgeWorkspace .forge-form{flex:0 0 auto;min-height:0;padding:14px 12px 20px;border-right:0;border-bottom:1px solid var(--line)}
-  #forgeWorkspace .forge-preview{flex:1 1 520px;min-height:480px}
-  #forgeWorkspace .forge-preview-header{position:sticky;top:0}
-  #forgeWorkspace .forge-preview-controls{gap:5px}
-  #forgeWorkspace .forge-char-count{display:none}
-  #forgeWorkspace .forge-quality-label{min-width:96px}
-  #forgeWorkspace .forge-output{padding:20px 14px 32px}
-}
-@media(max-width:480px){
-  #forgeWorkspace .forge-meta-row{grid-template-columns:1fr}
-  #forgeWorkspace .ws-title{font-size:19px}
-  #forgeWorkspace .ws-subtitle{font-size:10px}
-  #forgeWorkspace .forge-template-chip{min-height:34px}
-  #forgeWorkspace .forge-section{padding:12px}
-}
-
-/* Editor: inline Optimize panel */
-.optin-panel { margin-top: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-sunk); }
-.optin-panel[hidden], .optin-panel [hidden] { display: none !important; }
-.optin-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.optin-title { display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--ff-sans);
-  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
-.optin-score { font: 600 11px var(--ff-mono, monospace); padding: 2px 9px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--ink-2, var(--ink)); }
-.optin-text { width: 100%; box-sizing: border-box; min-height: 140px; resize: vertical; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink);
-  font: 13px/1.55 var(--ff-mono, monospace); }
-.optin-changes { font-size: 12px; line-height: 1.55; color: var(--ink-3); white-space: pre-line; }
-.optin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.optin-applied { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--ink-3); }
-
-.optin-controls { display: flex; gap: 8px; }
-.optin-focus { flex: 1; min-width: 0; }
-.optin-strength { width: 130px; flex: none; }
-
-/* Tour: step lists (phone / Tailscale steps) */
-#onboardingCard.ob-wide { width: 440px; max-width: calc(100vw - 32px); }
-#obList { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px;
-  font-size: 13px; line-height: 1.55; color: var(--ink-2); }
-#obList.ob-bullets { list-style: disc; }
-#obList[hidden] { display: none; }
-#obList li strong { color: var(--ink); font-weight: 600; }
-/* Prompt Forge: custom framework editor */
-#forgeFwModal { z-index: calc(var(--z-modal) + 10); }
-#forgeFwNewBtn, #forgeFwEditBtn { margin-left: var(--sp-2); }
-.ffw-note { font-size: 12px; color: var(--ink-3, var(--text-muted)); margin: 0 0 var(--sp-2); }
-.ffw-rows { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-2); }
-.ffw-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto; gap: var(--sp-2); align-items: center; }
-.ffw-remove { margin-right: auto; color: var(--danger, oklch(55% 0.18 25)); }
-#forgeFwDelete[hidden], #forgeFwEditBtn[hidden] { display: none; }

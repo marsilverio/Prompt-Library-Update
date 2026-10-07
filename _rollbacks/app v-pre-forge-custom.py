@@ -16,7 +16,7 @@ import vault_scanner
 def _hash_key(k):
     return hashlib.sha256(k.strip().upper().encode()).hexdigest()
 
-app = Flask(__name__, static_folder=None)  # /static served by send_static below
+app = Flask(__name__)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Strict',
@@ -41,8 +41,7 @@ def _is_private(addr):
         ip = ipaddress.ip_address((addr or '').split('%')[0])
         if getattr(ip, 'ipv4_mapped', None):
             ip = ip.ipv4_mapped
-        # Tailscale addresses (CGNAT range) count as private
-        return ip.is_private or (ip.version == 4 and ip in ipaddress.ip_network('100.64.0.0/10'))
+        return ip.is_private
     except ValueError:
         return False
 
@@ -59,17 +58,9 @@ def _lan_ip():
         s.close()
 
 
-def _lan_mode_on():
-    # Tokenless private-network access, opt-in via the file ~/Documents/PromptLibrary/lan_mode
-    return os.path.exists(os.path.join(os.path.expanduser('~'), 'Documents', 'PromptLibrary', 'lan_mode'))
-
-
 @app.before_request
 def _phone_gate():
     if _is_loopback(request.remote_addr):
-        return None
-    if (_lan_mode_on() and _is_private(request.remote_addr)
-            and not request.path.startswith('/api/phone/')):
         return None
     if (not _phone['enabled'] or not _is_private(request.remote_addr)
             or request.path.startswith('/api/phone/')):
@@ -182,6 +173,8 @@ _RAW_KEYS = [
 # Generated 2026-05-23, batch of 15. To add more: generate keys, hash with
 # sha256(KEY.strip().upper()), append the digests below, rebuild.
 _SALES_KEY_HASHES = {
+    # CAT739K
+    '212645499f7c929859eaacd2cdffe9cb67b34f3b3d0136c45cdc41dc2f005f63',
     # PROMPTLIB-PRO-AND-001
     '9f728305141767db0715e209090e938ea7582aa5b0ecc25f8e392349124f980a',
     # Personal / manually-issued keys, hashed 2026-08-10.
@@ -1568,44 +1561,6 @@ def get_prompts():
     conn.close()
     return jsonify([serialize_prompt(r) for r in rows])
 
-def _deleted_everywhere_ids():
-    try:
-        data = json.loads(get_setting('sync_deleted_ids') or '[]')
-        return [int(i) for i in data if isinstance(i, (int, str)) and str(i).lstrip('-').isdigit()]
-    except (TypeError, ValueError):
-        return []
-
-
-def _record_deleted_everywhere(new_ids):
-    merged = sorted(set(_deleted_everywhere_ids()) | set(int(i) for i in new_ids))[-5000:]
-    set_setting('sync_deleted_ids', json.dumps(merged))
-    return merged
-
-
-@app.route('/api/sync/deleted', methods=['GET'])
-def sync_deleted_get():
-    """Prompt numbers deleted on purpose from a phone or tablet ("delete everywhere"), so other devices can remove them too."""
-    return jsonify({'ids': _deleted_everywhere_ids()})
-
-
-@app.route('/api/sync/deleted', methods=['POST'])
-def sync_deleted_post():
-    data = _json_body()
-    new = [int(i) for i in (data.get('ids') or []) if isinstance(i, (int, str)) and str(i).lstrip('-').isdigit()]
-    return jsonify({'ids': _record_deleted_everywhere(new)})
-
-
-@app.route('/api/prompts/stamp', methods=['GET'])
-def prompts_stamp():
-    """A tiny fingerprint of the library, so open windows can tell when something changed elsewhere (phone sync)."""
-    conn = get_db()
-    try:
-        row = conn.execute('SELECT COUNT(*), COALESCE(MAX(id),0), COALESCE(MAX(updated_at),\'\'), COALESCE(SUM(is_favorite),0) FROM prompts').fetchone()
-    finally:
-        conn.close()
-    return jsonify({'count': row[0], 'last_id': row[1], 'last_updated': row[2], 'favourites': row[3]})
-
-
 @app.route('/api/prompts/filters', methods=['GET'])
 def get_filter_options():
     conn = get_db()
@@ -1642,14 +1597,8 @@ def get_prompt(pid):
         return jsonify({'error': 'Not found'}), 404
     return jsonify(serialize_prompt(row))
 
-@app.route('/api/prompts', methods=['POST'])
-def create_prompt():
-    data = _prompt_payload(_json_body())
-    if not data['content'].strip():
-        return jsonify({'error': 'Prompt content is required'}), 400
-    conn = get_db()
-    try:
-        cur  = conn.execute('''
+def _insert_prompt(conn, data):
+    cur = conn.execute('''
             INSERT INTO prompts
                 (title, description, content, categories, tags, folder_id,
                  colour_label, rating, notes, chain_ids, variable_meta, chat_turns, role_id,
@@ -1665,11 +1614,139 @@ def create_prompt():
             data['prompt_domain'], data['prompt_use_case'],
             data['prompt_output_format'], data['prompt_tone'],
         ))
-        pid = cur.lastrowid
+    return cur.lastrowid
+
+@app.route('/api/prompts', methods=['POST'])
+def create_prompt():
+    data = _prompt_payload(_json_body())
+    if not data['content'].strip():
+        return jsonify({'error': 'Prompt content is required'}), 400
+    conn = get_db()
+    try:
+        pid = _insert_prompt(conn, data)
         conn.commit()
     finally:
         conn.close()
     return jsonify({'id': pid})
+
+
+# NEARBY SHARE -- local-only inbox for offers taken by share_server.py on port 47800
+import uuid
+import share_server
+
+
+def share_boot():
+    did = get_setting('device_id')
+    if not did:
+        did = uuid.uuid4().hex
+        set_setting('device_id', did)
+    name = get_setting('device_name') or socket.gethostname() or 'Desktop'
+    receiving = (get_setting('share_receiving') or '1') == '1'
+    share_server.configure(did, name, receiving)
+
+
+def _share_local_only():
+    if not _is_loopback(request.remote_addr):
+        return jsonify({'error': 'Only available on this computer'}), 403
+    return None
+
+
+@app.route('/api/share/inbox', methods=['GET'])
+def share_inbox():
+    return _share_local_only() or jsonify({
+        'offers': share_server.pending(),
+        'receiving': share_server._state['enabled'],
+        'name': share_server._state['name'],
+        'port': share_server.SHARE_PORT,
+    })
+
+
+@app.route('/api/share/inbox/<oid>', methods=['POST'])
+def share_resolve(oid):
+    denied = _share_local_only()
+    if denied:
+        return denied
+    accept = bool(_json_body().get('accept'))
+    offer = share_server.resolve(oid, accept)
+    if not offer:
+        return jsonify({'error': 'That offer has expired'}), 410
+    if not accept:
+        return jsonify({'ok': True})
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM folders WHERE name = 'Received'").fetchone()
+        fid = row['id'] if row else conn.execute("INSERT INTO folders (name) VALUES ('Received')").lastrowid
+        p = offer['prompt']
+        data = _prompt_payload({**p, 'folder_id': fid, 'notes': f"Received from {offer['fromName']}"})
+        pid = _insert_prompt(conn, data)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'id': pid, 'folder_id': fid})
+
+
+@app.route('/api/share/devices', methods=['GET'])
+def share_devices():
+    denied = _share_local_only()
+    if denied:
+        return denied
+    ip = (request.args.get('ip') or '').strip()
+    if ip:
+        if not share_server._private(ip):
+            return jsonify({'devices': [], 'error': 'Use the address shown on the phone, like 192.168.1.23'})
+        d = share_server.probe(ip, timeout=2.5)
+        return jsonify({'devices': [d] if d else [], 'error': None if d else 'Nothing answered at ' + ip + '. Keep Prompt Library open on that device.'})
+    return jsonify(share_server.scan())
+
+
+@app.route('/api/share/send', methods=['POST'])
+def share_send():
+    denied = _share_local_only()
+    if denied:
+        return denied
+    body = _json_body()
+    conn = get_db()
+    try:
+        row = conn.execute('SELECT * FROM prompts WHERE id = ?', (body.get('prompt_id'),)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return jsonify({'error': 'Prompt not found'}), 404
+    p = serialize_prompt(row)
+    try:
+        code, d = share_server.send(str(body.get('ip') or ''), {
+            'title': p['title'], 'description': p['description'], 'content': p['content'],
+            'categories': p['categories'], 'tags': p['tags'],
+        })
+    except Exception:
+        return jsonify({'error': 'Could not reach that device'}), 502
+    return jsonify(d), code
+
+
+@app.route('/api/share/send/<ip>/<oid>', methods=['GET'])
+def share_send_status(ip, oid):
+    denied = _share_local_only()
+    if denied:
+        return denied
+    try:
+        code, d = share_server.sent_status(ip, oid)
+    except Exception:
+        return jsonify({'status': 'unreachable'})
+    return jsonify(d), code
+
+
+@app.route('/api/share/settings', methods=['POST'])
+def share_settings():
+    denied = _share_local_only()
+    if denied:
+        return denied
+    body = _json_body()
+    if 'receiving' in body:
+        set_setting('share_receiving', '1' if body.get('receiving') else '0')
+    if (body.get('name') or '').strip():
+        set_setting('device_name', body['name'].strip()[:60])
+    share_boot()
+    return jsonify({'receiving': share_server._state['enabled'], 'name': share_server._state['name']})
 
 @app.route('/api/prompts/<int:pid>', methods=['PUT'])
 def update_prompt(pid):
@@ -1737,9 +1814,6 @@ def delete_prompt(pid):
     conn.execute('DELETE FROM prompts WHERE id=?', (pid,))
     conn.commit()
     conn.close()
-    # "Delete everywhere": remember it, so phones and tablets remove their copy at their next sync.
-    if row is not None and request.args.get('everywhere') == '1':
-        _record_deleted_everywhere([pid])
     return jsonify({'success': True})
 
 @app.route('/api/prompts/bulk', methods=['PATCH'])
@@ -1798,20 +1872,16 @@ def bulk_delete_prompts():
     ids = [pid for pid in ids if pid not in locked]
     conn = get_db()
     success, failed = 0, 0
-    deleted_ids = []
     try:
         for pid in ids:
             cur = conn.execute('DELETE FROM prompts WHERE id=?', (pid,))
             if cur.rowcount:
                 success += 1
-                deleted_ids.append(pid)
             else:
                 failed += 1
         conn.commit()
     finally:
         conn.close()
-    if deleted_ids and data.get('everywhere'):
-        _record_deleted_everywhere(deleted_ids)
     return jsonify({'success': success, 'failed': failed, 'skipped_locked': skipped_locked})
 
 @app.route('/api/prompts/<int:pid>/fork', methods=['POST'])
@@ -3406,48 +3476,6 @@ def _role_payload(data):
     }
 
 # ── AI Config settings (stored in local DB settings table) ───────────────────
-# Prompt Forge custom frameworks: a JSON list in the settings table, no schema change
-def _clean_forge_frameworks(items):
-    clean, seen = [], set()
-    for f in items[:50]:
-        if not isinstance(f, dict):
-            continue
-        name = str(f.get('name') or '').strip()[:40]
-        fid = re.sub(r'[^a-z0-9]', '', str(f.get('id') or name).lower())[:40]
-        fields = []
-        for x in (f.get('fields') or [])[:12]:
-            if not isinstance(x, dict):
-                continue
-            label = str(x.get('label') or '').strip()[:40]
-            if label:
-                fields.append({'label': label, 'hint': str(x.get('hint') or '').strip()[:120],
-                               'placeholder': str(x.get('placeholder') or '').strip()[:300]})
-        if name and fid and fields and fid not in seen:
-            seen.add(fid)
-            clean.append({'id': fid, 'name': name, 'description': str(f.get('description') or '').strip()[:160],
-                          'fields': fields})
-    return clean
-
-
-@app.route('/api/settings/forge-frameworks', methods=['GET'])
-def get_forge_frameworks():
-    try:
-        data = json.loads(get_setting('forge_custom_frameworks') or '[]')
-    except ValueError:
-        data = []
-    return jsonify(_clean_forge_frameworks(data if isinstance(data, list) else []))
-
-
-@app.route('/api/settings/forge-frameworks', methods=['POST'])
-def set_forge_frameworks():
-    items = _json_body().get('frameworks')
-    if not isinstance(items, list):
-        return jsonify({'error': 'frameworks must be a list'}), 400
-    clean = _clean_forge_frameworks(items)
-    set_setting('forge_custom_frameworks', json.dumps(clean))
-    return jsonify(clean)
-
-
 @app.route('/api/settings/ai-config', methods=['GET'])
 def get_ai_config():
     """Return stored provider (key is never returned for security)."""
