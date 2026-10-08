@@ -8,7 +8,7 @@
 
 <!-- Neumorphism typography: Space Mono (display/UI) + JetBrains Mono (code/mono) -->
 <link rel="stylesheet" href="/static/fonts/fonts.css">
-<link rel="stylesheet" href="/static/app.css?v=72a7d0ee-forgeux">
+<link rel="stylesheet" href="/static/app.css?v=19ae6ba5-forgeux">
 </head>
 <body>
 
@@ -4167,9 +4167,20 @@
     </div>
   </div>
   <div class="ws-body backup-body">
+    <div class="backup-section-label">Automatic backups</div>
+    <div class="backup-auto" id="backupAuto">
+      <label class="backup-auto-toggle"><input type="checkbox" id="backupAutoEnabled"> <span>Back up my library automatically every day</span></label>
+      <div class="backup-auto-keep">Keep the last <select id="backupAutoKeep"><option value="7">7</option><option value="14">14</option><option value="30">30</option><option value="60">60</option></select> automatic backups</div>
+      <div class="backup-row-meta" id="backupAutoStatus"></div>
+    </div>
     <div class="backup-section-label">Snapshots</div>
     <div class="backup-list" id="backupList">
       <div class="backup-loading">Loading snapshots&hellip;</div>
+    </div>
+    <div class="backup-section-label backup-trash-label">Recently deleted <button class="btn btn-ghost btn-xs" id="trashEmptyBtn" hidden>Empty</button></div>
+    <p class="backup-row-meta backup-trash-note">Deleted prompts stay here for 30 days, with their version history. Restoring puts a prompt back in your library.</p>
+    <div class="backup-list" id="trashList">
+      <div class="backup-loading">Loading&hellip;</div>
     </div>
   </div>
 </div>
@@ -5018,7 +5029,7 @@
 
 <!-- App script -->
 <script src="/static/qrcode.min.js"></script>
-<script defer src="/static/app.js?v=d92216a2"></script>
+<script defer src="/static/app.js?v=ea7cfc01"></script>
 
 <!-- Static helpers used from HTML onclick="" attributes (pure UI, no data) -->
 <script>

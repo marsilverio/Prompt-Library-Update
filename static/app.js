@@ -2672,7 +2672,7 @@
             title.textContent = count === 1 ? (label ? 'Delete "' + label + '"?' : 'Delete this prompt?') : 'Delete ' + count + ' prompts?';
             const note = document.createElement('p');
             note.style.cssText = 'margin:0;font-size:13.5px;line-height:1.55;color:var(--ink-2,#444);';
-            note.textContent = 'This cannot be undone. "This Mac only" leaves the copy on your iPhone and iPad. "Everywhere" also removes it from them at their next sync. Prompts locked in Version Lock are never deleted.';
+            note.textContent = 'Deleted prompts stay in Recently Deleted (Backup & Restore) for 30 days on this Mac. "This Mac only" leaves the copy on your iPhone and iPad. "Everywhere" also removes it from them at their next sync. Prompts locked in Version Lock are never deleted.';
             const mk = (text, style) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.style.cssText = 'width:100%;justify-content:center;' + (style || ''); b.textContent = text; return b; };
             const here = mk('Delete on this Mac only');
             const everywhere = mk('Delete everywhere (Mac, iPhone and iPad)', 'background:#c0392b;color:#fff;border-color:#c0392b;');
@@ -18999,11 +18999,85 @@ Must avoid: [Anything sensitive or previously declined]`
         }
     }
 
+    async function _backupLoadAuto() {
+        try {
+            const a = await api('/backup/auto');
+            const on = $('#backupAutoEnabled'), keep = $('#backupAutoKeep'), st = $('#backupAutoStatus');
+            if (on) on.checked = !!a.enabled;
+            if (keep) keep.value = String(a.keep);
+            if (st) st.textContent = a.last_at
+                ? `Last automatic backup: ${_backupFormatDate(a.last_at)} \u00b7 ${a.count} kept`
+                : (a.enabled ? 'The first automatic backup will run shortly after the app opens.' : 'Automatic backups are off.');
+        } catch (e) { /* the panel just keeps its defaults */ }
+    }
+
+    async function _backupSaveAuto() {
+        try {
+            await api('/backup/auto', { method: 'POST', body: JSON.stringify({
+                enabled: !!$('#backupAutoEnabled')?.checked, keep: Number($('#backupAutoKeep')?.value || 14) }) });
+            await _backupLoadAuto();
+        } catch (e) { toast('Could not save: ' + e.message, 'error'); }
+    }
+
+    function _trashDaysText(n) { return n <= 1 ? 'Removed tomorrow' : `${n} days left`; }
+
+    async function _trashLoad() {
+        const listEl = $('#trashList');
+        if (!listEl) return;
+        try {
+            const rows = await api('/trash');
+            const emptyBtn = $('#trashEmptyBtn');
+            if (emptyBtn) emptyBtn.hidden = !rows.length;
+            if (!rows.length) { listEl.innerHTML = '<div class="backup-loading">Nothing deleted recently.</div>'; return; }
+            listEl.innerHTML = rows.map(r => `
+        <div class="backup-row">
+          <div class="backup-row-main">
+            <span class="material-symbols-outlined backup-row-icon">delete</span>
+            <div>
+              <div class="backup-row-date">${escapeHtml(r.title)}</div>
+              <div class="backup-row-meta">Deleted ${escapeHtml(_backupFormatDate(r.deletedAt))} &middot; ${escapeHtml(_trashDaysText(r.daysLeft))}${r.versions ? ' &middot; ' + r.versions + ' versions' : ''}</div>
+            </div>
+          </div>
+          <div class="backup-row-actions">
+            <button class="btn btn-ghost btn-xs" data-trash-restore="${escapeAttr(r.binId)}">Restore</button>
+            <button class="btn btn-danger btn-xs" data-trash-delete="${escapeAttr(r.binId)}">Delete forever</button>
+          </div>
+        </div>`).join('');
+            listEl.querySelectorAll('[data-trash-restore]').forEach(b => b.addEventListener('click', () => _trashRestore(b.dataset.trashRestore)));
+            listEl.querySelectorAll('[data-trash-delete]').forEach(b => b.addEventListener('click', () => _trashForget(b.dataset.trashDelete)));
+        } catch (e) {
+            listEl.innerHTML = `<div class="backup-empty"><p>Couldn\u2019t load: ${escapeHtml(e.message)}</p></div>`;
+        }
+    }
+
+    async function _trashRestore(binId) {
+        try {
+            await api(`/trash/${encodeURIComponent(binId)}/restore`, { method: 'POST' });
+            toast('Prompt restored to your library', 'success');
+            await _trashLoad();
+            try { await loadPrompts(); } catch (e) { /* list refreshes on next open */ }
+        } catch (e) { toast('Restore failed: ' + e.message, 'error'); }
+    }
+
+    async function _trashForget(binId) {
+        if (!confirm('Delete this prompt forever? This can\u2019t be undone.')) return;
+        try { await api(`/trash/${encodeURIComponent(binId)}`, { method: 'DELETE' }); await _trashLoad(); }
+        catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+    }
+
+    async function _trashEmpty() {
+        if (!confirm('Empty Recently Deleted? Every prompt in it will be gone forever.')) return;
+        try { await api('/trash', { method: 'DELETE' }); await _trashLoad(); }
+        catch (e) { toast('Could not empty: ' + e.message, 'error'); }
+    }
+
     window.openBackupWorkspace = function() {
         $('#backupWorkspace')?.classList.add('open');
         $$('.nav-item[data-view]').forEach(el =>
             el.classList.toggle('active', el.dataset.view === 'backup'));
         _backupLoadList();
+        _backupLoadAuto();
+        _trashLoad();
     };
 
     function closeBackupWorkspace() {
@@ -19017,6 +19091,9 @@ Must avoid: [Anything sensitive or previously declined]`
         if (!ws) return;
         $('#closeBackupBtn')?.addEventListener('click', closeBackupWorkspace);
         $('#backupNowBtn')?.addEventListener('click', _backupCreate);
+        $('#backupAutoEnabled')?.addEventListener('change', _backupSaveAuto);
+        $('#backupAutoKeep')?.addEventListener('change', _backupSaveAuto);
+        $('#trashEmptyBtn')?.addEventListener('click', _trashEmpty);
         ws.addEventListener('keydown', e => {
             if (e.key === 'Escape') closeBackupWorkspace();
         });

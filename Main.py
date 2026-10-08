@@ -15,7 +15,7 @@ import traceback
 
 import webview
 
-from app import app, get_data_dir, init_db
+from app import app, get_data_dir, init_db, start_auto_backup
 
 
 # ERROR LOGGING
@@ -89,6 +89,7 @@ def start_server(port):
     """Run the Flask app under Waitress (production-grade WSGI)."""
     try:
         init_db()
+        start_auto_backup()
         try:
             from waitress import serve
             serve(app, host=BIND_HOST, port=port, threads=8, _quiet=True)
