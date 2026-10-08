@@ -1595,15 +1595,103 @@ def sync_deleted_post():
     return jsonify({'ids': _record_deleted_everywhere(new)})
 
 
+PHONE_BANK_KEY = 'phone_bank_items'
+MAX_PHONE_BANK_ITEMS = 5000
+BANK_TOMBSTONE_DAYS = 90
+
+
+def _bank_clean_item(raw):
+    if not isinstance(raw, dict):
+        return None
+    item_id = str(raw.get('id') or '').strip()[:80]
+    kind = str(raw.get('bank') or 'other').strip()[:30] or 'other'
+    if not item_id:
+        return None
+    try:
+        updated = float(raw.get('updatedAt') or 0)
+    except (TypeError, ValueError):
+        updated = 0.0
+    return {'id': item_id, 'bank': kind, 'group': str(raw.get('group') or '')[:120], 'title': str(raw.get('title') or '')[:200],
+            'text': str(raw.get('text') or '')[:100000], 'updatedAt': updated}
+
+
+def _bank_clean_tombstone(raw):
+    if not isinstance(raw, dict):
+        return None
+    item_id = str(raw.get('id') or '').strip()[:80]
+    try:
+        deleted = float(raw.get('deletedAt') or 0)
+    except (TypeError, ValueError):
+        deleted = 0.0
+    return {'id': item_id, 'deletedAt': deleted} if item_id else None
+
+
+def _merge_bank(stored, incoming, now=None):
+    """Merges the Bank items two phones keep. The newest edit of an item wins, and a deletion beats any edit made before it."""
+    import time
+    now = time.time() if now is None else now
+    items = {}
+    for raw in (stored.get('items') or []):
+        it = _bank_clean_item(raw)
+        if it:
+            items[it['id']] = it
+    tombs = {}
+    for raw in list(stored.get('tombstones') or []) + list(incoming.get('tombstones') or []):
+        t = _bank_clean_tombstone(raw)
+        if t and (t['id'] not in tombs or t['deletedAt'] > tombs[t['id']]['deletedAt']):
+            tombs[t['id']] = t
+    for raw in (incoming.get('items') or []):
+        it = _bank_clean_item(raw)
+        if it and (it['id'] not in items or it['updatedAt'] > items[it['id']]['updatedAt']):
+            items[it['id']] = it
+    for item_id, t in list(tombs.items()):
+        if item_id in items and t['deletedAt'] >= items[item_id]['updatedAt']:
+            del items[item_id]
+    cutoff = now - BANK_TOMBSTONE_DAYS * 86400
+    tombs = {k: v for k, v in tombs.items() if v['deletedAt'] >= cutoff and k not in items}
+    merged = sorted(items.values(), key=lambda i: -i['updatedAt'])[:MAX_PHONE_BANK_ITEMS]
+    return {'items': merged, 'tombstones': sorted(tombs.values(), key=lambda t: -t['deletedAt'])}
+
+
+def _phone_bank_stored():
+    try:
+        data = json.loads(get_setting(PHONE_BANK_KEY) or '{}')
+        return data if isinstance(data, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+@app.route('/api/sync/bank', methods=['GET'])
+def sync_bank_get():
+    """The Bank items the phones share (the Mac's own Context Bank is separate)."""
+    return jsonify(_merge_bank(_phone_bank_stored(), {}))
+
+
+@app.route('/api/sync/bank', methods=['POST'])
+def sync_bank_post():
+    """A phone sends its own Bank items and deletions; the merged list comes back."""
+    merged = _merge_bank(_phone_bank_stored(), _json_body())
+    set_setting(PHONE_BANK_KEY, json.dumps(merged))
+    return jsonify(merged)
+
+
 @app.route('/api/prompts/stamp', methods=['GET'])
 def prompts_stamp():
     """A tiny fingerprint of the library, so open windows can tell when something changed elsewhere (phone sync)."""
+    import hashlib
     conn = get_db()
     try:
         row = conn.execute('SELECT COUNT(*), COALESCE(MAX(id),0), COALESCE(MAX(updated_at),\'\'), COALESCE(SUM(is_favorite),0) FROM prompts').fetchone()
+        try:
+            b = conn.execute('SELECT COUNT(*), COALESCE(MAX(updated_at),\'\') FROM boards').fetchone()
+            pins = conn.execute('SELECT COUNT(*) FROM board_pins').fetchone()[0]
+            boards = '%s:%s:%s' % (b[0], b[1], pins)
+        except Exception:
+            boards = ''
     finally:
         conn.close()
-    return jsonify({'count': row[0], 'last_id': row[1], 'last_updated': row[2], 'favourites': row[3]})
+    bank = hashlib.md5((get_setting(PHONE_BANK_KEY) or '').encode('utf-8')).hexdigest()[:8]
+    return jsonify({'count': row[0], 'last_id': row[1], 'last_updated': row[2], 'favourites': row[3], 'boards': boards, 'bank': bank})
 
 
 @app.route('/api/prompts/filters', methods=['GET'])
