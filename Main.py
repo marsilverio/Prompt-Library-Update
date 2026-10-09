@@ -15,7 +15,8 @@ import traceback
 
 import webview
 
-from app import app, get_data_dir, init_db, start_auto_backup
+from app import app, get_data_dir, init_db, share_boot, start_auto_backup
+import share_server
 
 
 # ERROR LOGGING
@@ -90,6 +91,12 @@ def start_server(port):
     try:
         init_db()
         start_auto_backup()
+        try:
+            share_boot()
+            threading.Thread(target=share_server.serve_forever, daemon=True).start()
+        except Exception:
+            # Nearby share is optional; the library still runs if port 47800 is taken
+            logging.error(traceback.format_exc())
         try:
             from waitress import serve
             serve(app, host=BIND_HOST, port=port, threads=8, _quiet=True)

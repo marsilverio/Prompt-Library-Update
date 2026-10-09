@@ -16,7 +16,7 @@ import vault_scanner
 def _hash_key(k):
     return hashlib.sha256(k.strip().upper().encode()).hexdigest()
 
-app = Flask(__name__, static_folder=None)  # /static served by send_static below
+app = Flask(__name__)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Strict',
@@ -41,8 +41,7 @@ def _is_private(addr):
         ip = ipaddress.ip_address((addr or '').split('%')[0])
         if getattr(ip, 'ipv4_mapped', None):
             ip = ip.ipv4_mapped
-        # Tailscale addresses (CGNAT range) count as private
-        return ip.is_private or (ip.version == 4 and ip in ipaddress.ip_network('100.64.0.0/10'))
+        return ip.is_private
     except ValueError:
         return False
 
@@ -59,17 +58,9 @@ def _lan_ip():
         s.close()
 
 
-def _lan_mode_on():
-    # Tokenless private-network access, opt-in via the file ~/Documents/PromptLibrary/lan_mode
-    return os.path.exists(os.path.join(os.path.expanduser('~'), 'Documents', 'PromptLibrary', 'lan_mode'))
-
-
 @app.before_request
 def _phone_gate():
     if _is_loopback(request.remote_addr):
-        return None
-    if (_lan_mode_on() and _is_private(request.remote_addr)
-            and not request.path.startswith('/api/phone/')):
         return None
     if (not _phone['enabled'] or not _is_private(request.remote_addr)
             or request.path.startswith('/api/phone/')):
@@ -1570,424 +1561,6 @@ def get_prompts():
     conn.close()
     return jsonify([serialize_prompt(r) for r in rows])
 
-def _deleted_everywhere_ids():
-    try:
-        data = json.loads(get_setting('sync_deleted_ids') or '[]')
-        return [int(i) for i in data if isinstance(i, (int, str)) and str(i).lstrip('-').isdigit()]
-    except (TypeError, ValueError):
-        return []
-
-
-def _record_deleted_everywhere(new_ids):
-    merged = sorted(set(_deleted_everywhere_ids()) | set(int(i) for i in new_ids))[-5000:]
-    set_setting('sync_deleted_ids', json.dumps(merged))
-    return merged
-
-
-@app.route('/api/sync/deleted', methods=['GET'])
-def sync_deleted_get():
-    """Prompt numbers deleted on purpose from a phone or tablet ("delete everywhere"), so other devices can remove them too."""
-    return jsonify({'ids': _deleted_everywhere_ids()})
-
-
-@app.route('/api/sync/deleted', methods=['POST'])
-def sync_deleted_post():
-    data = _json_body()
-    new = [int(i) for i in (data.get('ids') or []) if isinstance(i, (int, str)) and str(i).lstrip('-').isdigit()]
-    return jsonify({'ids': _record_deleted_everywhere(new)})
-
-
-import time as _time
-import uuid as _uuid
-import logging as _logging
-
-# ============================================================
-# AUTOMATIC BACKUPS
-# A daily snapshot of the whole library, kept for a while. Only files this feature made (named *_auto_*) are ever pruned.
-# ============================================================
-AUTO_BACKUP_MIN_AGE = 20 * 3600          # seconds between automatic snapshots
-AUTO_BACKUP_KEEP_DEFAULT = 14
-_auto_backup_lock = threading.Lock()
-_auto_backup_started = False
-
-
-def _auto_backup_settings():
-    raw = get_setting('auto_backup_enabled')
-    enabled = True if raw in (None, '') else raw == '1'
-    try:
-        keep = max(3, min(60, int(get_setting('auto_backup_keep') or AUTO_BACKUP_KEEP_DEFAULT)))
-    except (TypeError, ValueError):
-        keep = AUTO_BACKUP_KEEP_DEFAULT
-    try:
-        last = float(get_setting('auto_backup_last') or 0)
-    except (TypeError, ValueError):
-        last = 0.0
-    return {'enabled': enabled, 'keep': keep, 'last': last}
-
-
-def _snapshot_to(dest_path):
-    """Copy the live library to dest_path with sqlite's backup API (safe while the app is running)."""
-    src = sqlite3.connect(DATABASE)
-    dest = sqlite3.connect(dest_path)
-    try:
-        with dest:
-            src.backup(dest)
-    finally:
-        src.close()
-        dest.close()
-
-
-def _verify_snapshot(path):
-    """True when the snapshot opens, passes sqlite's own check, and holds the same number of prompts as the live library."""
-    try:
-        con = sqlite3.connect('file:%s?immutable=1' % path, uri=True)
-        try:
-            ok = con.execute('PRAGMA quick_check').fetchone()[0] == 'ok'
-            n = con.execute('SELECT COUNT(*) FROM prompts').fetchone()[0]
-        finally:
-            con.close()
-        live = sqlite3.connect(DATABASE)
-        try:
-            m = live.execute('SELECT COUNT(*) FROM prompts').fetchone()[0]
-        finally:
-            live.close()
-        return ok and abs(n - m) <= 5      # a few prompts may have changed while the copy was made
-    except Exception:
-        return False
-
-
-def _auto_backup_prune(keep):
-    d = _backup_dir()
-    autos = sorted([f for f in os.listdir(d) if f.endswith('.db') and '_auto_' in f], reverse=True)   # names carry the date, newest first
-    removed = []
-    for f in autos[keep:]:
-        try:
-            os.remove(os.path.join(d, f))
-            removed.append(f)
-        except OSError:
-            pass
-    return removed
-
-
-def _auto_backup_run(force=False, now=None):
-    """Makes an automatic snapshot if one is due (or `force`). Returns a small dict describing what happened."""
-    now = _time.time() if now is None else now
-    cfg = _auto_backup_settings()
-    if not force and not cfg['enabled']:
-        return {'status': 'off'}
-    if not force and now - cfg['last'] < AUTO_BACKUP_MIN_AGE:
-        return {'status': 'skipped', 'last': cfg['last']}
-    with _auto_backup_lock:
-        d = _backup_dir()
-        stamp = datetime.fromtimestamp(now).strftime('%Y%m%d_%H%M%S')
-        filename, n = 'PromptLibrary_auto_%s.db' % stamp, 1
-        while os.path.exists(os.path.join(d, filename)):
-            n += 1
-            filename = 'PromptLibrary_auto_%s_%d.db' % (stamp, n)
-        path = os.path.join(d, filename)
-        try:
-            _snapshot_to(path)
-            if not _verify_snapshot(path):
-                os.remove(path)
-                return {'status': 'error', 'error': 'The new backup did not pass its check, so it was discarded.'}
-        except Exception as e:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except OSError:
-                pass
-            return {'status': 'error', 'error': str(e)}
-        set_setting('auto_backup_last', str(now))
-        removed = _auto_backup_prune(cfg['keep'])
-        return {'status': 'created', 'filename': filename, 'removed': removed}
-
-
-def start_auto_backup():
-    """Starts the background timer (once). The first check waits a minute so startup is not slowed."""
-    global _auto_backup_started
-    if _auto_backup_started:
-        return
-    _auto_backup_started = True
-
-    def loop():
-        _time.sleep(60)
-        while True:
-            try:
-                _auto_backup_run()
-            except Exception:
-                _logging.exception('Automatic backup failed')
-            _time.sleep(1800)
-
-    threading.Thread(target=loop, daemon=True, name='auto-backup').start()
-
-
-def _auto_backup_status():
-    cfg = _auto_backup_settings()
-    d = _backup_dir()
-    count = len([f for f in os.listdir(d) if f.endswith('.db') and '_auto_' in f])
-    return {'enabled': cfg['enabled'], 'keep': cfg['keep'], 'count': count,
-            'last_at': datetime.fromtimestamp(cfg['last']).isoformat() if cfg['last'] else None}
-
-
-@app.route('/api/backup/auto', methods=['GET'])
-def auto_backup_get():
-    return jsonify(_auto_backup_status())
-
-
-@app.route('/api/backup/auto', methods=['POST'])
-def auto_backup_set():
-    data = _json_body()
-    if 'enabled' in data:
-        set_setting('auto_backup_enabled', '1' if data.get('enabled') else '0')
-    if 'keep' in data:
-        try:
-            set_setting('auto_backup_keep', str(max(3, min(60, int(data.get('keep'))))))
-        except (TypeError, ValueError):
-            return jsonify({'error': 'keep must be a number'}), 400
-    return jsonify(_auto_backup_status())
-
-
-@app.route('/api/backup/auto/run', methods=['POST'])
-def auto_backup_now():
-    result = _auto_backup_run(force=True)
-    if result.get('status') == 'error':
-        return jsonify(result), 500
-    return jsonify(dict(result, **_auto_backup_status()))
-
-
-# ============================================================
-# RECENTLY DELETED
-# Before a prompt is deleted, a full copy (the prompt, its version history, its board pins and taxonomy) is kept for 30 days.
-# Stored as one saved setting, so no new tables. Restoring brings it back as a NEW prompt, which keeps phone sync tidy.
-# ============================================================
-TRASH_KEY = 'recently_deleted'
-TRASH_DAYS = 30
-TRASH_MAX = 500
-_trash_lock = threading.Lock()
-
-
-def _trash_load(now=None):
-    """The bin, with anything older than 30 days dropped."""
-    now = _time.time() if now is None else now
-    try:
-        items = json.loads(get_setting(TRASH_KEY) or '[]')
-        items = items if isinstance(items, list) else []
-    except (TypeError, ValueError):
-        items = []
-    cutoff = now - TRASH_DAYS * 86400
-    return [i for i in items if isinstance(i, dict) and i.get('deletedAt', 0) >= cutoff]
-
-
-def _trash_save(items):
-    set_setting(TRASH_KEY, json.dumps(items[:TRASH_MAX], default=str))
-
-
-def _trash_snapshot(conn, ids, scope):
-    """Reads everything needed to bring these prompts back. Call BEFORE deleting, with the same connection."""
-    entries, now = [], _time.time()
-    for pid in ids:
-        row = conn.execute('SELECT * FROM prompts WHERE id=?', (pid,)).fetchone()
-        if row is None:
-            continue
-        entries.append({
-            'binId': _uuid.uuid4().hex, 'deletedAt': now, 'scope': scope, 'oldId': pid,
-            'prompt': dict(row),
-            'versions': [dict(r) for r in conn.execute('SELECT * FROM prompt_versions WHERE prompt_id=?', (pid,)).fetchall()],
-            'pins': [r[0] for r in conn.execute('SELECT board_id FROM board_pins WHERE prompt_id=?', (pid,)).fetchall()],
-            'taxonomy': [r[0] for r in conn.execute('SELECT use_case_id FROM prompt_taxonomy WHERE prompt_id=?', (pid,)).fetchall()],
-        })
-    return entries
-
-
-def _trash_keep(entries):
-    """Stores snapshots in the bin. Never raises: a problem here must not stop a delete."""
-    if not entries:
-        return
-    try:
-        with _trash_lock:
-            _trash_save(entries + _trash_load())
-    except Exception:
-        _logging.exception('Could not save to Recently Deleted')
-
-
-def _trash_summary(item, now=None):
-    now = _time.time() if now is None else now
-    p = item.get('prompt', {})
-    left = max(0, int(-(-(item.get('deletedAt', 0) + TRASH_DAYS * 86400 - now) // 86400)))
-    return {'binId': item.get('binId'), 'title': p.get('title') or 'Untitled', 'preview': (p.get('content') or '')[:240],
-            'deletedAt': datetime.fromtimestamp(item.get('deletedAt', 0)).isoformat(), 'scope': item.get('scope', 'this_mac'),
-            'daysLeft': left, 'versions': len(item.get('versions', []))}
-
-
-@app.route('/api/trash', methods=['GET'])
-def trash_list():
-    with _trash_lock:
-        items = _trash_load()
-    return jsonify([_trash_summary(i) for i in items])
-
-
-@app.route('/api/trash/<bin_id>/restore', methods=['POST'])
-def trash_restore(bin_id):
-    with _trash_lock:
-        items = _trash_load()
-        item = next((i for i in items if i.get('binId') == bin_id), None)
-        if item is None:
-            return jsonify({'error': 'That prompt is no longer in Recently Deleted'}), 404
-        conn = get_db()
-        try:
-            cols = [r[1] for r in conn.execute('PRAGMA table_info(prompts)').fetchall()]
-            data = {k: v for k, v in item['prompt'].items() if k in cols and k != 'id'}
-            data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            # Things the prompt pointed at may be gone by now.
-            if data.get('folder_id') and not conn.execute('SELECT 1 FROM folders WHERE id=?', (data['folder_id'],)).fetchone():
-                data['folder_id'] = None
-            if data.get('parent_id') and not conn.execute('SELECT 1 FROM prompts WHERE id=?', (data['parent_id'],)).fetchone():
-                data['parent_id'] = None
-            def insert(d):
-                names = list(d.keys())
-                cur = conn.execute('INSERT INTO prompts (%s) VALUES (%s)' % (','.join(names), ','.join('?' * len(names))), [d[n] for n in names])
-                return cur.lastrowid
-            try:
-                new_id = insert(data)
-            except sqlite3.IntegrityError:
-                for k in ('relative_path', 'vault_id', 'source_hash'):
-                    data.pop(k, None)
-                new_id = insert(data)
-            for v in item.get('versions', []):
-                vcols = [r[1] for r in conn.execute('PRAGMA table_info(prompt_versions)').fetchall()]
-                vd = {k: x for k, x in v.items() if k in vcols and k not in ('id', 'prompt_id')}
-                vd['prompt_id'] = new_id
-                conn.execute('INSERT INTO prompt_versions (%s) VALUES (%s)' % (','.join(vd), ','.join('?' * len(vd))), list(vd.values()))
-            for bid in item.get('pins', []):
-                if conn.execute('SELECT 1 FROM boards WHERE id=?', (bid,)).fetchone():
-                    conn.execute('INSERT OR IGNORE INTO board_pins (board_id, prompt_id) VALUES (?,?)', (bid, new_id))
-            for uid in item.get('taxonomy', []):
-                if conn.execute('SELECT 1 FROM taxonomy_use_cases WHERE id=?', (uid,)).fetchone():
-                    conn.execute('INSERT OR IGNORE INTO prompt_taxonomy (prompt_id, use_case_id) VALUES (?,?)', (new_id, uid))
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            return jsonify({'error': 'Could not restore: %s' % e}), 500
-        finally:
-            conn.close()
-        _trash_save([i for i in items if i.get('binId') != bin_id])
-    return jsonify({'ok': True, 'id': new_id})
-
-
-@app.route('/api/trash/<bin_id>', methods=['DELETE'])
-def trash_remove(bin_id):
-    with _trash_lock:
-        items = _trash_load()
-        _trash_save([i for i in items if i.get('binId') != bin_id])
-    return jsonify({'ok': True})
-
-
-@app.route('/api/trash', methods=['DELETE'])
-def trash_empty():
-    with _trash_lock:
-        _trash_save([])
-    return jsonify({'ok': True})
-
-
-PHONE_BANK_KEY = 'phone_bank_items'
-MAX_PHONE_BANK_ITEMS = 5000
-BANK_TOMBSTONE_DAYS = 90
-
-
-def _bank_clean_item(raw):
-    if not isinstance(raw, dict):
-        return None
-    item_id = str(raw.get('id') or '').strip()[:80]
-    kind = str(raw.get('bank') or 'other').strip()[:30] or 'other'
-    if not item_id:
-        return None
-    try:
-        updated = float(raw.get('updatedAt') or 0)
-    except (TypeError, ValueError):
-        updated = 0.0
-    return {'id': item_id, 'bank': kind, 'group': str(raw.get('group') or '')[:120], 'title': str(raw.get('title') or '')[:200],
-            'text': str(raw.get('text') or '')[:100000], 'updatedAt': updated}
-
-
-def _bank_clean_tombstone(raw):
-    if not isinstance(raw, dict):
-        return None
-    item_id = str(raw.get('id') or '').strip()[:80]
-    try:
-        deleted = float(raw.get('deletedAt') or 0)
-    except (TypeError, ValueError):
-        deleted = 0.0
-    return {'id': item_id, 'deletedAt': deleted} if item_id else None
-
-
-def _merge_bank(stored, incoming, now=None):
-    """Merges the Bank items two phones keep. The newest edit of an item wins, and a deletion beats any edit made before it."""
-    import time
-    now = time.time() if now is None else now
-    items = {}
-    for raw in (stored.get('items') or []):
-        it = _bank_clean_item(raw)
-        if it:
-            items[it['id']] = it
-    tombs = {}
-    for raw in list(stored.get('tombstones') or []) + list(incoming.get('tombstones') or []):
-        t = _bank_clean_tombstone(raw)
-        if t and (t['id'] not in tombs or t['deletedAt'] > tombs[t['id']]['deletedAt']):
-            tombs[t['id']] = t
-    for raw in (incoming.get('items') or []):
-        it = _bank_clean_item(raw)
-        if it and (it['id'] not in items or it['updatedAt'] > items[it['id']]['updatedAt']):
-            items[it['id']] = it
-    for item_id, t in list(tombs.items()):
-        if item_id in items and t['deletedAt'] >= items[item_id]['updatedAt']:
-            del items[item_id]
-    cutoff = now - BANK_TOMBSTONE_DAYS * 86400
-    tombs = {k: v for k, v in tombs.items() if v['deletedAt'] >= cutoff and k not in items}
-    merged = sorted(items.values(), key=lambda i: -i['updatedAt'])[:MAX_PHONE_BANK_ITEMS]
-    return {'items': merged, 'tombstones': sorted(tombs.values(), key=lambda t: -t['deletedAt'])}
-
-
-def _phone_bank_stored():
-    try:
-        data = json.loads(get_setting(PHONE_BANK_KEY) or '{}')
-        return data if isinstance(data, dict) else {}
-    except (TypeError, ValueError):
-        return {}
-
-
-@app.route('/api/sync/bank', methods=['GET'])
-def sync_bank_get():
-    """The Bank items the phones share (the Mac's own Context Bank is separate)."""
-    return jsonify(_merge_bank(_phone_bank_stored(), {}))
-
-
-@app.route('/api/sync/bank', methods=['POST'])
-def sync_bank_post():
-    """A phone sends its own Bank items and deletions; the merged list comes back."""
-    merged = _merge_bank(_phone_bank_stored(), _json_body())
-    set_setting(PHONE_BANK_KEY, json.dumps(merged))
-    return jsonify(merged)
-
-
-@app.route('/api/prompts/stamp', methods=['GET'])
-def prompts_stamp():
-    """A tiny fingerprint of the library, so open windows can tell when something changed elsewhere (phone sync)."""
-    import hashlib
-    conn = get_db()
-    try:
-        row = conn.execute('SELECT COUNT(*), COALESCE(MAX(id),0), COALESCE(MAX(updated_at),\'\'), COALESCE(SUM(is_favorite),0) FROM prompts').fetchone()
-        try:
-            b = conn.execute('SELECT COUNT(*), COALESCE(MAX(updated_at),\'\') FROM boards').fetchone()
-            pins = conn.execute('SELECT COUNT(*) FROM board_pins').fetchone()[0]
-            boards = '%s:%s:%s' % (b[0], b[1], pins)
-        except Exception:
-            boards = ''
-    finally:
-        conn.close()
-    bank = hashlib.md5((get_setting(PHONE_BANK_KEY) or '').encode('utf-8')).hexdigest()[:8]
-    return jsonify({'count': row[0], 'last_id': row[1], 'last_updated': row[2], 'favourites': row[3], 'boards': boards, 'bank': bank})
-
-
 @app.route('/api/prompts/filters', methods=['GET'])
 def get_filter_options():
     conn = get_db()
@@ -2144,7 +1717,6 @@ def share_send():
         code, d = share_server.send(str(body.get('ip') or ''), {
             'title': p['title'], 'description': p['description'], 'content': p['content'],
             'categories': p['categories'], 'tags': p['tags'],
-            'variable_meta': p.get('variable_meta') or {},
         })
     except Exception:
         return jsonify({'error': 'Could not reach that device'}), 502
@@ -2233,11 +1805,6 @@ def delete_prompt(pid):
         return jsonify({'error': 'This prompt is locked. Unlock it in Version Lock before deleting.'}), 423
     conn = get_db()
     row = conn.execute('SELECT title, content FROM prompts WHERE id=?', (pid,)).fetchone()
-    kept = []
-    try:
-        kept = _trash_snapshot(conn, [pid], 'everywhere' if request.args.get('everywhere') == '1' else 'this_mac')
-    except Exception:
-        _logging.exception('Could not copy a prompt to Recently Deleted')
     if row is not None:
         snapshot = json.dumps({'title': row['title'], 'content': row['content']})
         conn.execute(
@@ -2247,10 +1814,6 @@ def delete_prompt(pid):
     conn.execute('DELETE FROM prompts WHERE id=?', (pid,))
     conn.commit()
     conn.close()
-    _trash_keep(kept)
-    # "Delete everywhere": remember it, so phones and tablets remove their copy at their next sync.
-    if row is not None and request.args.get('everywhere') == '1':
-        _record_deleted_everywhere([pid])
     return jsonify({'success': True})
 
 @app.route('/api/prompts/bulk', methods=['PATCH'])
@@ -2309,27 +1872,16 @@ def bulk_delete_prompts():
     ids = [pid for pid in ids if pid not in locked]
     conn = get_db()
     success, failed = 0, 0
-    deleted_ids = []
-    kept = []
     try:
         for pid in ids:
-            try:
-                kept += _trash_snapshot(conn, [pid], 'everywhere' if data.get('everywhere') else 'this_mac')
-            except Exception:
-                _logging.exception('Could not copy a prompt to Recently Deleted')
             cur = conn.execute('DELETE FROM prompts WHERE id=?', (pid,))
             if cur.rowcount:
                 success += 1
-                deleted_ids.append(pid)
             else:
                 failed += 1
-                kept = [k for k in kept if k.get('oldId') != pid]
         conn.commit()
     finally:
         conn.close()
-    _trash_keep(kept)
-    if deleted_ids and data.get('everywhere'):
-        _record_deleted_everywhere(deleted_ids)
     return jsonify({'success': success, 'failed': failed, 'skipped_locked': skipped_locked})
 
 @app.route('/api/prompts/<int:pid>/fork', methods=['POST'])
@@ -3620,7 +3172,6 @@ def _backup_info(dir_path, filename):
         'filename':   filename,
         'size':       st.st_size,
         'created_at': datetime.fromtimestamp(st.st_mtime).isoformat(),
-        'auto':       '_auto_' in filename,
     }
 
 @app.route('/api/backup', methods=['GET'])

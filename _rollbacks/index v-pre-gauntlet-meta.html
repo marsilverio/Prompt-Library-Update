@@ -9,7 +9,7 @@
 
 <!-- Neumorphism typography: Space Mono (display/UI) + JetBrains Mono (code/mono) -->
 <link rel="stylesheet" href="/static/fonts/fonts.css">
-<link rel="stylesheet" href="/static/app.css?v=edd6d54a-plx">
+<link rel="stylesheet" href="/static/app.css?v=06df1ce6-plx">
 </head>
 <body>
 
@@ -1133,9 +1133,6 @@
             <button type="button" class="btn btn-ghost btn-sm" id="insertVaultTemplateBtn" hidden>
               <span class="material-symbols-outlined" style="font-size:14px;">description</span> Use template
             </button>
-            <button type="button" class="btn btn-ghost btn-sm premium-locked" data-premium="true" id="optimizeFromEditorBtn" title="Optimize this prompt — Pro feature">
-              <span class="material-symbols-outlined" style="font-size:14px;">speed</span> Optimize
-            </button>
           </div>
           <div class="prompt-block">
             <!-- Sub-tabs: System Prompt / Conversation -->
@@ -1161,32 +1158,6 @@
               <div class="editor-grid-2">
                 <textarea id="promptContent" placeholder="Enter your system prompt here... Use [[variable]], {{variable}}, or ((variable)) for placeholders." required></textarea>
                 <div id="editorPreview"><span class="hint">Live preview...</span></div>
-              </div>
-              <div class="optin-panel" id="optInPanel" hidden>
-                <div class="optin-head">
-                  <span class="optin-title"><span class="material-symbols-outlined" style="font-size:15px;">speed</span> Optimized version</span>
-                  <span class="optin-score" id="optInScore" hidden></span>
-                </div>
-                <div class="optin-controls">
-                  <input type="text" id="optInFocus" class="form-input optin-focus" maxlength="200" placeholder="Focus (optional): e.g. make it stricter, add an output format" aria-label="Optimize focus">
-                  <select id="optInStrength" class="form-input optin-strength" aria-label="Optimize strength">
-                    <option value="thorough">Thorough</option>
-                    <option value="light">Light</option>
-                  </select>
-                </div>
-                <textarea id="optInText" class="optin-text" rows="8" spellcheck="false" aria-label="Optimized prompt"></textarea>
-                <div class="optin-changes" id="optInChanges" hidden></div>
-                <div class="optin-actions" id="optInActions">
-                  <button type="button" class="btn btn-accent btn-sm" id="optInApplyBtn">Replace prompt</button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="optInRetryBtn">Try again</button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="optInOpenBtn">Open in Optimizer</button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="optInDiscardBtn">Discard</button>
-                </div>
-                <div class="optin-applied" id="optInApplied" hidden>
-                  <span>Prompt replaced with the optimized version.</span>
-                  <button type="button" class="btn btn-ghost btn-sm" id="optInUndoBtn">Undo</button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="optInCloseBtn">Close</button>
-                </div>
               </div>
             </div>
 
@@ -2632,9 +2603,7 @@
       </div>
     </div>
     <div class="ws-header-actions">
-      <button class="btn btn-accent" id="optReplaceSaveBtn" style="display:none;" title="Put the optimized prompt into the editor and save"><span class="material-symbols-outlined">task_alt</span> Replace &amp; save</button>
-      <button class="btn btn-ghost" id="optReplaceBtn" style="display:none;" title="Put the optimized prompt into the editor without saving yet"><span class="material-symbols-outlined">swap_horiz</span> Replace in editor</button>
-      <button class="btn btn-accent" id="optSaveBtn"><span class="material-symbols-outlined">save</span> <span id="optSaveLabel">Save</span></button>
+      <button class="btn btn-accent" id="optSaveBtn"><span class="material-symbols-outlined">save</span> Save</button>
       <button class="icon-btn" id="closeOptimizerBtn" aria-label="Close Optimizer"><span class="material-symbols-outlined">close</span></button>
     </div>
   </div>
@@ -3862,7 +3831,7 @@
       <span class="material-symbols-outlined ws-header-icon">shield</span>
       <div>
         <h2 class="ws-title">Gauntlet Loop</h2>
-        <p class="ws-subtitle">Turn a goal into a builder and critic Gauntlet Loop prompt.</p>
+        <p class="ws-subtitle">Build a fan-out / loop / harsh-critic AAA build prompt from a few inputs.</p>
       </div>
     </div>
     <div class="ws-header-actions">
@@ -3870,18 +3839,21 @@
     </div>
   </div>
   <div class="ws-body pfe-body">
-    <div class="opt-section-label">Goal <span class="hint" style="text-transform:none;font-weight:400;">(required)</span></div>
-    <textarea id="gauntBuiltInput" class="forge-input" rows="3" placeholder="e.g. a browser game that looks and feels like a AAA shooter, a landing page that beats Stripe's..."></textarea>
+    <div class="opt-section-label">What do you want built? <span class="hint" style="text-transform:none;font-weight:400;">(required)</span></div>
+    <input id="gauntBuiltInput" type="text" class="forge-input" placeholder="e.g. a task management dashboard, a landing page, a Chrome extension...">
 
-    <div class="opt-section-label" style="margin-top:var(--sp-3);">References or quality bars <span class="hint" style="text-transform:none;font-weight:400;">(optional)</span></div>
-    <textarea id="gauntRefsInput" class="forge-input" rows="3" placeholder="Screenshots, URLs, benchmarks, a competitor to beat. Leave blank and the agent proposes a bar."></textarea>
+    <div class="opt-section-label" style="margin-top:var(--sp-3);">Specifics to nail at AAA quality</div>
+    <input id="gauntSpecificsInput" type="text" class="forge-input" placeholder="e.g. typography, spacing, micro-interactions, accessibility...">
+
+    <div class="opt-section-label" style="margin-top:var(--sp-3);">Language / stack</div>
+    <input id="gauntLangInput" type="text" class="forge-input" placeholder="e.g. React + TypeScript, Python, Swift...">
 
     <div class="opt-actions" style="margin-top:var(--sp-2);">
       <button class="btn btn-accent" id="gauntRunBtn"><span class="material-symbols-outlined">shield</span> Generate Gauntlet Prompt</button>
     </div>
 
     <div class="opt-section-label" style="margin-top:var(--sp-4);">Generated Prompt</div>
-    <div class="opt-output" id="gauntOutput"><span class="hint">Add your goal and click <strong>Generate Gauntlet Prompt</strong>. The ready-to-run prompt appears here.</span></div>
+    <div class="opt-output" id="gauntOutput"><span class="hint">Fill in the fields above and click <strong>Generate Gauntlet Prompt</strong> — the ready-to-run prompt appears here.</span></div>
 
     <div class="opt-actions" id="gauntOutputActions" style="display:none;margin-top:var(--sp-2);">
       <button class="btn btn-ghost" id="gauntCopyBtn"><span class="material-symbols-outlined">content_copy</span> Copy</button>
@@ -4165,20 +4137,9 @@
     </div>
   </div>
   <div class="ws-body backup-body">
-    <div class="backup-section-label">Automatic backups</div>
-    <div class="backup-auto" id="backupAuto">
-      <label class="backup-auto-toggle"><input type="checkbox" id="backupAutoEnabled"> <span>Back up my library automatically every day</span></label>
-      <div class="backup-auto-keep">Keep the last <select id="backupAutoKeep"><option value="7">7</option><option value="14">14</option><option value="30">30</option><option value="60">60</option></select> automatic backups</div>
-      <div class="backup-row-meta" id="backupAutoStatus"></div>
-    </div>
     <div class="backup-section-label">Snapshots</div>
     <div class="backup-list" id="backupList">
       <div class="backup-loading">Loading snapshots&hellip;</div>
-    </div>
-    <div class="backup-section-label backup-trash-label">Recently deleted <button class="btn btn-ghost btn-xs" id="trashEmptyBtn" hidden>Empty</button></div>
-    <p class="backup-row-meta backup-trash-note">Deleted prompts stay here for 30 days, with their version history. Restoring puts a prompt back in your library.</p>
-    <div class="backup-list" id="trashList">
-      <div class="backup-loading">Loading&hellip;</div>
     </div>
   </div>
 </div>
@@ -4983,7 +4944,6 @@
     <div id="obEyebrow"></div>
     <div id="obTitle"></div>
     <p id="obDesc"></p>
-    <ol id="obList" hidden></ol>
     <div id="obDots"></div>
     <div id="obActions">
       <button class="btn btn-ghost" id="obSkipBtn" onclick="window.PL_skipOnboarding()">Skip tour</button>
@@ -5027,7 +4987,7 @@
 
 <!-- App script -->
 <script src="/static/qrcode.min.js"></script>
-<script defer src="/static/app.js?v=f2f996f2"></script>
+<script defer src="/static/app.js?v=a8b634e7"></script>
 
 <!-- Static helpers used from HTML onclick="" attributes (pure UI, no data) -->
 <script>

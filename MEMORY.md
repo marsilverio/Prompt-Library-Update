@@ -216,3 +216,133 @@ Detect with: `Get-ChildItem -Force -File -Recurse | Where-Object { $_.Attributes
 
 ### Reference
 - PRD exists covering full free/premium feature inventory, DB schema, API endpoints, licensing architecture, competitive positioning
+---
+
+## Current State (2026-10-06) — supersedes older state notes where they conflict
+
+### Product architecture
+
+Prompt Library Pro is currently a local-first Windows desktop prompt engineering application. The account-management experiment has been completely reverted. The product should again be treated as having no user accounts, no authentication, no account switching, no account memory, no password layer, and no account-specific licence state.
+
+The SQLite database and Prompt Components graph core were deliberately preserved through the account-system reversion. Recent verification work focuses on database integrity and graph persistence rather than account functionality.
+
+### Prompt Components canvas upgrade
+
+The Prompt Components workspace has moved substantially beyond its earlier flat node editor baseline.
+
+Current interaction work includes:
+
+- Resizable component nodes, with stored resize state controlling rendered dimensions.
+- Marquee selection and alignment controls.
+- Improved selection and alignment feedback.
+- Live edge previews while creating connections.
+- Explicit connection endpoints.
+- Endpoint reconnection.
+- Connection inspector editing.
+- Preservation of text-input focus while editing connection data.
+- Continuous node dragging across canvas rerenders.
+- Canvas navigation polish and restored node sizing.
+- Improved graph prompt compilation for branches and convergence.
+
+The strategic direction is a professional visual editor for prompt systems, with interaction depth approaching tools such as Figma, tldraw, or React Flow, while remaining purpose-built for prompt construction and graph compilation.
+
+Do not replace this with a generic node editor, and do not damage the existing SQLite graph persistence while extending it.
+
+### Nearby share (v0.2 of the Android companion, 2026-10-06)
+
+- `share_server.py` runs a second, tiny Flask app on fixed port **47800** (started in its own thread from `Main.py` after `init_db()`; failure there is logged and never stops the main app). It only serves `GET /share/hello`, `POST /share/offer`, `GET /share/offer/<id>`. Private network addresses only, 256KB body cap, offers expire after 180s, 10 offers a minute per IP, 20 pending max. It has no route to `/api` or the database.
+- Accepting is local only: `GET /api/share/inbox`, `POST /api/share/inbox/<id>` (`{accept}`), `POST /api/share/settings` (`{receiving, name}`) in `app.py`, all refused unless the request is loopback. Accepted prompts go into a `Received` folder (created on first use) with notes "Received from <device>".
+- Settings keys (existing `settings` table, no schema change): `device_id` (uuid hex, created on first boot), `device_name` (defaults to hostname), `share_receiving` ('1' default on).
+- `app.py` now has `_insert_prompt(conn, data)`; `create_prompt` and the share accept route both use it.
+- UI: incoming offers show as AirDrop style cards top right (`.nearby-stack` / `.nearby-card`, polled every 3s, code in the main IIFE). The receive switch and computer name live in the "Continue on phone" modal under NEARBY SHARE.
+- Scope gotcha: `static/app.js` has four top level IIFEs (main ends near line 28322). Later IIFEs (onboarding, viewer, phone share) cannot see `toast`, `escapeHtml` or `loadAll`; the main IIFE exposes `window.PL_toast`. The phone share panel's "Link copied" toast was silently broken by this until now.
+- `grep -c "<script" static/index.html` is **4**, not 3 (CLAUDE.md triage note is stale).
+- Desktop icon changed 2026-10-06 to the teal hardcover book with a prompt label (same art as the Android app): `icon.ico`, `static/icon.ico`, `app-icon.png`, plus `<link rel="icon">` in index.html. Old icons backed up in `_rollbacks/` as `icon v1.ico` and `static-icon v1.ico`; the old `app-icon.png` is in git history only (`*.png` is gitignored). The in-app logos `static/logo-mark.png` (sidebar) and `static/logo.png` now use the same book, and `mac/app-icon.icns` (referenced by `mac/setup.py`, previously missing) is generated from it.
+- Sending (v0.3): each prompt card has a paper plane button (`window.PL_sendNearby(id)`) that opens "Send to nearby". `GET /api/share/devices` scans this computer's /24 on port 47800 (64 threads, 0.8s timeout, about 4s, excludes its own device ID); `POST /api/share/send {ip, prompt_id}` offers the prompt; `GET /api/share/send/<ip>/<offerId>` reports pending, accepted, declined or expired. Sending uses `urllib` only and refuses non-private addresses. Works to phones (app open) and to other desktops (laptop to laptop).
+- Discovery fix (2026-10-07, after a real test where the phone found the laptop but not the reverse): the desktop now scans every private IPv4 /24 it has (route guess plus `gethostbyname_ex`, link local skipped, max 4 networks, 96 threads), always probes peers that recently said hello or sent an offer (`_peers`, kept 24h; phones send `?from=&name=&type=` on hello), bypasses the Windows system proxy for local calls, and the Send modal has "Add by address" (`GET /api/share/devices?ip=`) plus the scanned networks in its empty state. Root causes covered: wrong adapter picked (WSL, Hyper-V, VPN), system proxy, phone app not on screen.
+- Root cause of desktop not finding phones (2026-10-07, confirmed in the 0.7.0 APK bytecode): `MainActivity.handleShare` matched `/share/hello` exactly, so the desktop probe `/share/hello?from=&name=&type=` got a 404. `share_server.probe()` now retries the plain path on a 404, so already installed phone builds are found. The phone source now strips the query string; rebuild the APK to pick it up. Backup: `_rollbacks/share_server v-pre-hello-fix.py`.
+- Phone side lives in `funben12/AI-App-Factory` `apps/app-003-prompt-library-mobile` (v0.3: sends and receives; it only receives while the app is on screen).
+
+### Memory maintenance rule
+
+Substantial repository changes must update the relevant model-specific memory file automatically.
+
+GPT changes update GPT-MEMORY.md. Claude changes update MEMORY.md and any applicable Claude-specific notes. When a change establishes shared project truth, MEMORY.md must also be updated.
+
+Memory should describe the current resulting state and supersede stale instructions rather than accumulating contradictory history.
+
+## Prompt Forge
+
+The 2026-10-05 Prompt Forge workbench redesign and stylesheet cache refresh were reverted. The pre-redesign Prompt Forge layout is the current intended baseline. Do not reapply the reverted visual treatment unless explicitly requested.
+
+### Prompt Forge frameworks and custom frameworks (2026-10-07)
+
+- All framework definitions now live in `static/forge-frameworks.js` (`window.PL_FORGE_FRAMEWORKS`, 354 entries, each with `title` = the dropdown label). `app.js` builds `FORGE_FRAMEWORKS` from it (about 5,800 lines left app.js). The phone app ships a copy of the same file.
+- Before this, 225 of the 354 dropdown options had no definition and silently did nothing. Every option now has fields; a Playwright check walks all 354 and confirms each renders and assembles.
+- Loaded by its own `<script>` tag after components-data.js, so `grep -c "<script" static/index.html` is now 5. `mac/setup.py` lists the file.
+- Custom frameworks: "+ New" beside the dropdown (or "+ New framework…" in it) opens an editor; typing an acronym makes one part per letter. Saved via `GET/POST /api/settings/forge-frameworks` into the settings key `forge_custom_frameworks` (JSON list, max 50, 12 parts each; no schema change). Shown first under "My frameworks" as keys `my_<id>`; Edit appears only for those. Same JSON shape as the phone's `forgeFrameworks`.
+- Modal is built in JS, inserted before `#toastContainer`, z-index above the Forge workspace. `.btn` overrides `[hidden]`, so hidden buttons need an explicit `[hidden]{display:none}` rule.
+
+### Workspace suite
+
+A broader prompt engineering suite was added and wired into the existing launcher convention. Redundant evaluation/workflow workspaces were subsequently removed.
+
+Current live specialised workspace IDs observed in static/index.html:
+
+fill, audit, diff, cost, pulse, xray, splice, generate, example, adapter, simplify, tone, translate, gauntlet, batch.
+
+Human-readable roles:
+
+- Quick Fill
+- Prompt Auditor
+- Diff Lens
+- Cost Lens
+- Library Organizer
+- Prompt X-Ray
+- Prompt Splicer
+- Prompt Generator
+- Prompt from Example
+- Model Adapter
+- Prompt Simplifier
+- Tone & Style Rewriter
+- Prompt Translator
+- Gauntlet Loop
+- Batch Runner
+
+The live files are authoritative. Older workspace descriptions in the historical changelog may describe experiments that were later removed.
+
+### Recent stability and cleanup
+
+October 5 work also included:
+
+- app.py syntax repair after corruption around database initialisation.
+- Removal of obsolete app - v1.py.
+- Reversion of the account-management layer.
+- Removal of account-lock styling and account-specific licence documentation.
+- Database and graph smoke-test refocus.
+- Fixes allowing remaining workspace dialogs to close.
+- Workspace-suite refresh after workspace removal.
+- Prompt Forge redesign and stylesheet cache refresh were reverted after review.
+- Restoration of an existing premium licence key through the normal licence mechanism.
+
+### Development direction
+
+The current product priority is coherent prompt-engineering tooling rather than accumulating workspaces. New features should earn their place by providing a distinct job, should reuse existing launcher and workspace conventions, and should not create duplicate functionality.
+
+Preserve the local-first architecture, SQLite data, graph persistence, existing licence system, and the established live-file workflow. Do not reintroduce the reverted account system unless explicitly requested.
+
+### Gauntlet Loop prompt (2026-10-08)
+
+The Gauntlet Loop workspace now generates the Gauntlet meta-prompt (goal, inspectable quality bar, Matt Shumer Claude of Duty style short agent prompt, builder and critic fan-out, blind A/B critique, live progress page, subagents and ultracode). Inputs are two textareas: Goal (required, `#gauntBuiltInput`) and References (optional, `#gauntRefsInput`). The old three-input AAA template and the language field were removed. Still client-side string templating, no AI call, no schema change. Backups: `_rollbacks/app v-pre-gauntlet-meta.js`, `_rollbacks/index v-pre-gauntlet-meta.html`.
+
+### Variable types expansion (2026-10-08)
+
+- Desktop fill sheet gained 8 types: Segmented, Stepper, Percentage, Date Range, Today, Title Case, Hashtags, List. Total is now 44. No schema change, `variable_meta` stays freeform JSON.
+- Output formatting per type happens in `_readVarControlValue` via `_PL_formatVar` (title case, `#` hashtags, `- ` bullets, `%`, `a to b` dates). The input keeps the raw value, the preview and copy use the formatted one.
+- Mobile companion (AI-App-Factory `apps/app-003-prompt-library-mobile`) now keeps `variable_meta` on import as `varMeta` and renders the right control per type through a new `vartypes.js`, with the same 8 new types. Types are set on desktop only, nearby share does not carry them yet (needs `MainActivity.java` offer JSON and `share_server.py` changes).
+- Backups: `_rollbacks/app v-pre-var-types-2.js` and `.css`. Cache hashes refreshed with `update_hash.py`.
+- Stage 2 (2026-10-08): per-variable `wrap` key in `variable_meta` (quotes, codefence, xml tag named after the variable), set in the variable editor row, applied in `_readVarControlValue`. New types Clipboard (paste button) and Library Prompt (inserts another prompt's content), 46 types total. `replaceVariables` is now single pass so inserted text is never re-expanded and `$` in values is safe. Backups: `_rollbacks/app v-pre-var-types-3.js` and `.css`.
+- Mobile stage 2: editor has a Variable types section (type picker, options, wrap), plus Clipboard and Library prompt types. Phone saves `varMeta` with `wrap`.
+- Nearby share now carries `variable_meta` both ways (2026-10-08). Desktop: `share_server._meta()` cleans incoming settings (50 vars, size caps, known keys only), `app.py` `/api/share/send` includes it, accept saves it through the normal prompt insert. Phone: `MainActivity.cleanVarMeta` on receive, `varMeta` sent as `variable_meta`. Backups: `_rollbacks/share_server v-pre-nearby-types.py`, `_rollbacks/app v-pre-nearby-types.py`. Phone Java change needs the APK rebuilt and reinstalled to take effect.
+- Mobile parity (2026-10-08): the phone now renders every desktop variable type (added Range, Range Slider, Ranked List, Matrix, Emoji, Icon names, Duration, Timezone, Language) and its editor sets type, options, default, wrap, Show when filling and multi. Prompts can be written, typed and filled entirely on the phone. Icon Picker on the phone shows icon names as chips (no Material Symbols font on the phone). Paragraph `size` is not carried to the phone.
+- Open: desktop live preview chains sequential replaces, copy output is correct.

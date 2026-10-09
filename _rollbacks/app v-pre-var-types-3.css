@@ -8849,25 +8849,6 @@
   color: var(--ink-4);
 }
 
-.backup-auto {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
-  margin-bottom: var(--sp-5);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  font-size: var(--fs-sm);
-  color: var(--ink);
-}
-.backup-auto-toggle { display: flex; align-items: center; gap: var(--sp-2); font-weight: 600; cursor: pointer; }
-.backup-auto-keep { color: var(--ink-3); }
-.backup-auto-keep select { margin: 0 4px; padding: 2px 6px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm, 6px); }
-#trashEmptyBtn[hidden] { display: none; }
-.backup-trash-label { display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-6); }
-.backup-trash-note { white-space: normal; margin: 0 0 var(--sp-2); }
-
 /* =============================================================
    RUN HISTORY
    Single-column, read-mostly list -- structurally follows
@@ -10746,33 +10727,6 @@ body.plx-workspace-open{overflow:hidden}
   .plx-editor,.plx-output{min-height:220px}
 }
 
-/* Editor: inline Optimize panel */
-.optin-panel { margin-top: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-sunk); }
-.optin-panel[hidden], .optin-panel [hidden] { display: none !important; }
-.optin-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.optin-title { display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--ff-sans);
-  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
-.optin-score { font: 600 11px var(--ff-mono, monospace); padding: 2px 9px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--ink-2, var(--ink)); }
-.optin-text { width: 100%; box-sizing: border-box; min-height: 140px; resize: vertical; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink);
-  font: 13px/1.55 var(--ff-mono, monospace); }
-.optin-changes { font-size: 12px; line-height: 1.55; color: var(--ink-3); white-space: pre-line; }
-.optin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.optin-applied { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--ink-3); }
-
-.optin-controls { display: flex; gap: 8px; }
-.optin-focus { flex: 1; min-width: 0; }
-.optin-strength { width: 130px; flex: none; }
-
-/* Tour: step lists (phone / Tailscale steps) */
-#onboardingCard.ob-wide { width: 440px; max-width: calc(100vw - 32px); }
-#obList { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px;
-  font-size: 13px; line-height: 1.55; color: var(--ink-2); }
-#obList.ob-bullets { list-style: disc; }
-#obList[hidden] { display: none; }
-#obList li strong { color: var(--ink); font-weight: 600; }
 /* Prompt Forge: custom framework editor */
 #forgeFwModal { z-index: calc(var(--z-modal) + 10); }
 #forgeFwNewBtn, #forgeFwEditBtn { margin-left: var(--sp-2); }
@@ -10798,7 +10752,3 @@ body.plx-workspace-open{overflow:hidden}
   .var-daterange input[type="date"] { flex: 1; min-width: 0; padding: 8px 12px; background: var(--surface-sunk); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--ink); }
   .var-daterange input[type="date"]:focus { border-color: var(--accent); box-shadow: var(--ring); outline: none; }
   .var-daterange > span { color: var(--ink-3); font-size: 12px; }
-
-  /* ---- Variable types: Clipboard / Library Prompt ---- */
-  .var-clip { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-  .var-lib-select { width: 100%; padding: 8px 12px; background: var(--surface-sunk); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--ink); }
