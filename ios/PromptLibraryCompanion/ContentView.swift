@@ -18,8 +18,8 @@ struct ContentView: View {
             NavigationStack {
                 Form {
                     Section(header: Text("Mac address"),
-                            footer: Text("Use your Mac's address: http://100.101.247.30:5757/ with Tailscale on (works anywhere), or its Wi-Fi address at home. Prompt Library Pro must be open on the Mac and ~/Documents/PromptLibrary/lan_mode must exist.")) {
-                        TextField("http://100.101.247.30:5757/", text: $draft)
+                            footer: Text("Use your Mac's address: http://your-mac-address:5757/ with Tailscale on (works anywhere), or its Wi-Fi address at home. Prompt Library Pro must be open on the Mac and ~/Documents/PromptLibrary/lan_mode must exist.")) {
+                        TextField("http://your-mac-address:5757/", text: $draft)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
